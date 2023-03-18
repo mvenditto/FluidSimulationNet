@@ -33,6 +33,17 @@ public class DoubleFrameBuffer : IDisposable
         (_fbo2, _fbo1) = (_fbo1, _fbo2);
     }
 
+    public void Resize(uint width, uint height)
+    {
+        if (_fbo1.Width == width && _fbo1.Height == height)
+        {
+            return;
+        }
+
+        Read.Resize(width, height);
+        Write.Resize(width, height, clear: true);
+    }
+
     public void Dispose()
     {
         GC.SuppressFinalize(this);

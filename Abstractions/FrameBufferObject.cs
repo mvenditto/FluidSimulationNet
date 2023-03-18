@@ -19,11 +19,12 @@ public class FrameBufferObject: IDisposable
 	private uint _height;
 	private float _texelSizeX;
 	private float _texelSizeY;
-    private readonly uint _textureHandle;
-    private readonly uint _fboHandle;
+    private uint _textureHandle;
+    private uint _fboHandle;
     private readonly InternalFormat _internalFormat;
     private readonly PixelFormat _pixelFormat;
     private readonly GLEnum _type;
+    private readonly GLEnum _textureFilter;
     private readonly int _internalFormatComponentNumber;
 
     public uint Handle => _fboHandle;
@@ -31,6 +32,10 @@ public class FrameBufferObject: IDisposable
     public uint Height => _height;
     public float TexelSizeX => _texelSizeX;
     public float TexelSizeY => _texelSizeY;
+    public InternalFormat InternalFormat => _internalFormat;
+    public GLEnum Type => _type;
+    public PixelFormat PixelFormat => _pixelFormat;
+    public GLEnum TextureFilter => _textureFilter;
 
     public uint TextureHandle => _textureHandle;
 
@@ -41,35 +46,52 @@ public class FrameBufferObject: IDisposable
 		GLEnum textureFilter)
 	{
         _gl = gl;
-        _width = width;
-		_height = height;
-		_texelSizeX = 1.0f / width;
-		_texelSizeY = 1.0f / height;
         _internalFormat = internalFormat;
         _pixelFormat = format;
         _type = type;
         _internalFormatComponentNumber = GetInternalFormatComponentNumber(internalFormat);
+        _textureFilter = textureFilter;
+        _width = width;
+        _height = height;
+        _texelSizeX = 1.0f / width;
+        _texelSizeY = 1.0f / height;
 
         _textureHandle = _gl.GenTexture();
         _gl.ActiveTexture(TextureUnit.Texture0);
         _gl.BindTexture(TextureTarget.Texture2D, _textureHandle);
-        _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)textureFilter);
-        _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)textureFilter);
+        _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)_textureFilter);
+        _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)_textureFilter);
         _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS, (int)GLEnum.ClampToEdge);
         _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT, (int)GLEnum.ClampToEdge);
-        _gl.TexImage2D(TextureTarget.Texture2D, 0, internalFormat, width, height, 0, format, type, null);
+        _gl.TexImage2D(TextureTarget.Texture2D, 0, _internalFormat, width, height, 0, _pixelFormat, _type, null);
 
         _fboHandle = _gl.GenFramebuffer();
         _gl.BindFramebuffer(GLEnum.Framebuffer, _fboHandle);
         _gl.FramebufferTexture2D(GLEnum.Framebuffer, GLEnum.ColorAttachment0, GLEnum.Texture2D, _textureHandle, 0);
         _gl.Viewport(0, 0, width, height);
         _gl.Clear((uint)GLEnum.ColorBufferBit);
-        
-        Console.WriteLine($"CREATE_FBO: w={width} h={height} ifmt={(int)internalFormat} fmt={(int)format} filt={(int)textureFilter}");
+
+        Console.WriteLine($"CREATE_FBO: w={width} h={height} ifmt={(int)_internalFormat} fmt={(int)_pixelFormat} filt={(int)_textureFilter}");
     }
+
+    public void Resize(uint width, uint height, bool clear = false)
+    {
+        var newFbo = new FrameBufferObject(_gl, width, height, _internalFormat, _pixelFormat, _type, _textureFilter);
+        if (clear == false)
+        {
+            BlitTo(newFbo);
+        }
+        Dispose();
+        _width = width;
+        _height = height;
+        _texelSizeX = 1.0f / width;
+        _texelSizeY = 1.0f / height;
+        _textureHandle = newFbo.TextureHandle;
+        _fboHandle = newFbo.Handle;
+    }
+
     public void BlitTo(uint dstFboHandle, uint dstWidth, uint dstHeight)
     {
-
         _gl.BindFramebuffer(FramebufferTarget.ReadFramebuffer, _fboHandle);   // bind the FBO to read from
         _gl.BindFramebuffer(FramebufferTarget.DrawFramebuffer, dstFboHandle); // bind the FBO to write to
 
@@ -156,11 +178,6 @@ public class FrameBufferObject: IDisposable
         GLEnum textureFilter): this(gl, width, height, internalFormat, format, (GLEnum)type, textureFilter)
     {
 
-    }
-
-    public void Resize(uint width, uint height)
-    {
-        throw new NotImplementedException();
     }
 
     public int Attach(TextureUnit textureX)

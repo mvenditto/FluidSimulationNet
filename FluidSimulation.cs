@@ -28,7 +28,7 @@ class FluidSimulation
     private float _splatDx = 0.0f;
     private float _splatDy = 150.0f;
     private float _splatForce = 6000f;
-    private Vector4 _splatColor = new Vector4(1, 1, 0, 1);
+    private Vector4 _splatColor = new(1, 1, 0, 1);
     private bool _paused = true;
     private bool _steppingMode = true;
     private bool _showGui = true;
@@ -62,6 +62,7 @@ class FluidSimulation
     private ImGuiController _controller;
     private float _aspectRatio;
     private float _actualWindowWidth;
+    private bool _resized;
     #endregion
 
     #region GL
@@ -132,8 +133,6 @@ class FluidSimulation
     public FluidSimulation(int width, int height)
     {
         var options = WindowOptions.Default;
-        // fix the border until resize is implemented
-        options.WindowBorder = WindowBorder.Fixed;
         options.Size = new Vector2D<int>(width, height);
         options.Title = "Fluidsim";
         _window = Window.Create(options);
@@ -148,7 +147,10 @@ class FluidSimulation
 
     private void OnResize(Vector2D<int> newSize)
     {
-        _aspectRatio = (newSize.X - _guiPanelSize.X) / (float) newSize.Y;
+        _actualWindowWidth = newSize.X - _guiPanelSize.X;
+        _aspectRatio = _actualWindowWidth / newSize.Y;
+        _guiPanelSize.Y = newSize.Y;
+        _resized = true;
     }
 
     private void InitDrawingBuffers()
@@ -438,7 +440,7 @@ class FluidSimulation
         float framerate = ImGui.GetIO().Framerate;
         ImGui.Text($"Application average {1000.0f / framerate:0.##} ms/frame ({framerate:0.#} FPS)");
         var simElapsedMs = (float)_simStopwatch.Elapsed.TotalMilliseconds;
-        ImGui.Text($"Simulation average {simElapsedMs:0.##} ms/frame ({(1.0 / simElapsedMs):0.#} FPS)");
+        ImGui.Text($"Simulation average {simElapsedMs:0.##} ms/frame");
         ImGui.Checkbox("paused", ref _paused);
         ImGui.SameLine(0, -1);
         ImGui.Checkbox("stepping", ref _steppingMode);
@@ -488,6 +490,15 @@ class FluidSimulation
         if (_showGui)
         {
             _controller.Update((float)dt);
+        }
+
+        if (_resized)
+        {
+            _resized = false;
+            var (dyeX, dyeY) = GetFboSizeFromResolution(DyeResolution);
+            var (x, y) = GetFboSizeFromResolution(SimResolution);
+            _velocityBuff.Resize(x, y);
+            _dyeBuff.Resize(dyeX, dyeY);
         }
 
         if (_paused == false)
