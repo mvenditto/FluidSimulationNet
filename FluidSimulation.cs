@@ -19,6 +19,8 @@ namespace FluidSim;
 class FluidSimulation
 {
     #region Simulation params
+    private int _simResolution = 512;
+    private int _dyeResolution = 1024;
     private int _pressureIterations = 100;
     private float _curl = 30;
     private float _pressure = 0.8f;
@@ -46,8 +48,24 @@ class FluidSimulation
     public bool ShowGui { get => _showGui; set => _showGui = value; }
     public VisualizationMode ActiveVisualizationMode { get => (VisualizationMode)_vizModeSelected; set => _vizModeSelected = (int)value; }
 
-    public float DyeResolution { get; init; } = 1024;
-    public float SimResolution { get; init; } = 512;
+    public int DyeResolution 
+    {
+        get => _dyeResolution;
+        init => _dyeResolution = value;
+    }
+    
+    public int SimResolution
+    {
+        get => _simResolution;
+        init => _simResolution = value;
+    }
+
+    private int _simResolutionIndex = SimResolutionValues.Length - 2;
+    private int _dyeResolutionIndex = 0;
+    private static readonly string[] DyeResolutionLabels = new string[] { "high (1024)", "medium (512)", "low (256)", "very low (128)" };
+    private static readonly int[] DyeResolutionValues = new int[] { 1024, 512, 256, 128 };
+    private static readonly string[] SimResolutionLabels = new string[] { "very low (32)", "low (64)", "medium (128)", "high (256)", "very high(512)", "ultra (1024)" };
+    private static readonly int[] SimResolutionValues = new int[] { 32, 64, 128, 256, 512, 1024 };
 
     private readonly IList<Pointer> _pointers = new List<Pointer>
     {
@@ -216,6 +234,18 @@ class FluidSimulation
         _curlBuff = _bufferFactory.CreateFrameBuffer(x, y, r, PixelFormat.Red, type, GLEnum.Nearest);
         _divergenceBuff = _bufferFactory.CreateFrameBuffer(x, y, r, PixelFormat.Red, type, GLEnum.Nearest);
         _pressureBuff = _bufferFactory.CreateDoubleFrameBuffer(x, y, r, PixelFormat.Red, type, GLEnum.Nearest);
+    }
+
+    private void ResizeFrameBuffers()
+    {
+        var (dyeX, dyeY) = GetFboSizeFromResolution(DyeResolution);
+        var (x, y) = GetFboSizeFromResolution(SimResolution);
+
+        _velocityBuff.Resize(x, y);
+        _dyeBuff.Resize(dyeX, dyeY);
+        _curlBuff.Resize(x, y);
+        _divergenceBuff.Resize(x, y);
+        _pressureBuff.Resize(x, y);
     }
 
     private void InitShaders()
@@ -435,6 +465,26 @@ class FluidSimulation
         ImGui.SliderFloat("vel. diffusion", ref _velocityDissipation, 0, 4f);
         ImGui.SliderFloat("pressure", ref _pressure, 0, 1f);
         ImGui.SliderInt("press. iters.", ref _pressureIterations, 20, 120);
+        
+        if(ImGui.Combo("sim. resolution.", ref _simResolutionIndex, SimResolutionLabels, SimResolutionLabels.Length))
+        {
+            var newSimResolution = SimResolutionValues[_simResolutionIndex];
+            if (newSimResolution != _simResolution)
+            {
+                _simResolution = newSimResolution;
+                _resized = true;
+            }
+        }
+
+        if (ImGui.Combo("dye. resolution.", ref _dyeResolutionIndex, DyeResolutionLabels, DyeResolutionLabels.Length))
+        {
+            var newDyeResolution = DyeResolutionValues[_dyeResolutionIndex];
+            if (newDyeResolution != _dyeResolution)
+            {
+                _dyeResolution = newDyeResolution;
+                _resized = true;
+            }
+        }
 
         SectionText("Simulation");
         float framerate = ImGui.GetIO().Framerate;
@@ -495,10 +545,7 @@ class FluidSimulation
         if (_resized)
         {
             _resized = false;
-            var (dyeX, dyeY) = GetFboSizeFromResolution(DyeResolution);
-            var (x, y) = GetFboSizeFromResolution(SimResolution);
-            _velocityBuff.Resize(x, y);
-            _dyeBuff.Resize(dyeX, dyeY);
+            ResizeFrameBuffers();
         }
 
         if (_paused == false)
