@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.4.33122.133
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "FluidSimulation", "FluidSimulation.csproj", "{C265E073-43C5-4217-B191-ADB1A24D0913}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{C265E073-43C5-4217-B191-ADB1A24D0913}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C265E073-43C5-4217-B191-ADB1A24D0913}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C265E073-43C5-4217-B191-ADB1A24D0913}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C265E073-43C5-4217-B191-ADB1A24D0913}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {81F63274-AD5A-4766-93E0-E4B3E031410A}
+	EndGlobalSection
+EndGlobal
