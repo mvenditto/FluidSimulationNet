@@ -153,6 +153,13 @@ class FluidSimulation
         var options = WindowOptions.Default;
         options.Size = new Vector2D<int>(width, height);
         options.Title = "Fluidsim";
+#if OPENGLES
+        options.API = new GraphicsAPI(
+            ContextAPI.OpenGLES, 
+            ContextProfile.Core, 
+            ContextFlags.Default, 
+            new APIVersion(3, 0));
+#endif
         _window = Window.Create(options);
         _guiPanelSize = new Vector2(400, height);
         _actualWindowWidth = _window.Size.X - _guiPanelSize.X;
@@ -186,11 +193,11 @@ class FluidSimulation
 
     private void InitGLContext()
     {
-        #if OPENGLES
-        Gl = _window.CreateOpenGLES();
-        #else
+#if OPENGLES
+        _gl = _window.CreateOpenGLES();
+#else
         _gl = _window.CreateOpenGL();
-        #endif
+#endif
 
         _bufferFactory = new GLBufferFactory(_gl);
 
