@@ -1,21 +1,21 @@
 ﻿using FluidSim;
-using static FluidSim.FluidSimulation;
+using Microsoft.Extensions.Configuration;
 
-var sim = new FluidSimulation(1200, 600)
+var config = new SimulationConfiguration();
+
+try {
+    new ConfigurationBuilder()
+        .AddJsonFile("appsettings.json")
+        .Build()
+        .GetSection("Simulation")
+        .Bind(config);
+}
+catch (Exception ex)
 {
-    Vorticity = 30,
-    Pressure = 0.8f,
-    VelocityDissipation = 0.2f,
-    DensityDissipation = 1.0f,
-    DefaultSplatRadius = 0.5f,
-    PressureIterations = 100,
-    HalfFloat = true,
-    DyeResolution = 1024,
-    SimResolution = 512,
-    Paused = false,
-    Stepping = false,
-    ShowGui = true,
-    ActiveVisualizationMode = VisualizationMode.Dye
-};
+    Console.Error.WriteLine(ex);
+    Console.WriteLine("Failed to load configuration file. Running with defaults.");
+}
+
+var sim = new FluidSimulation(config);
 
 sim.Run();

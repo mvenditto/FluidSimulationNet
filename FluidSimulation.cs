@@ -2,10 +2,14 @@
 using System.Diagnostics;
 using FluidSim.Abstractions;
 using FluidSim.Utilities;
+using FluidSim.Extensions;
 using Silk.NET.Maths;
 using Silk.NET.Windowing;
 using Silk.NET.Input;
 using ImGuiNET;
+using System.Runtime.InteropServices;
+using SixLabors.ImageSharp.ColorSpaces;
+using static FluidSim.FluidSimulation;
 #if OPENGLES
 using Silk.NET.OpenGLES;
 using Silk.NET.OpenGLES.Extensions.ImGui;
@@ -19,53 +23,34 @@ namespace FluidSim;
 class FluidSimulation
 {
     #region Simulation params
-    private int _simResolution = 512;
-    private int _dyeResolution = 1024;
-    private int _pressureIterations = 100;
-    private float _curl = 30;
-    private float _pressure = 0.8f;
-    private float _velocityDissipation = 0.2f;
-    private float _densityDissipation = 1.0f;
-    private float _splatRadius = 0.25f;
-    private float _splatDx = 0.0f;
-    private float _splatDy = 150.0f;
+    
+    private int _simResolution;
+    private int _dyeResolution;
+    private int _pressureIterations;
+    private float _curl;
+    private float _pressure;
+    private float _velocityDissipation;
+    private float _densityDissipation;
+    private float _splatRadius;
     private float _splatForce = 6000f;
-    private Vector4 _splatColor = new(1, 1, 0, 1);
-    private bool _paused = true;
+    private float _splatDx;
+    private float _splatDy;
+
+    private bool _paused;
     private bool _steppingMode = true;
     private bool _showGui = true;
+    private bool _screenshotRequested = false;
     private int _vizModeSelected = (int)VisualizationMode.Dye;
+    private Vector4 _splatColor = new(1, 1, 0, 1);
+    private float _fixedDt = 1.0f / 60f;
     private readonly Stopwatch _simStopwatch = new();
-
-    public int PressureIterations { get => _pressureIterations; set => _pressureIterations = value; }
-    public float Vorticity { get => _curl; set => _curl = value; }
-    public float Pressure { get => _pressure; set => _pressure = value; }
-    public float VelocityDissipation { get => _velocityDissipation; set => _velocityDissipation = value; }
-    public float DensityDissipation { get => _densityDissipation; set => _densityDissipation = value; }
-    public float DefaultSplatRadius { get => _splatRadius; set => _splatRadius = value; }
-    public bool Paused { get => _paused; set => _paused = value; }
-    public bool Stepping { get => _steppingMode; set => _steppingMode = value; }
-    public bool ShowGui { get => _showGui; set => _showGui = value; }
-    public VisualizationMode ActiveVisualizationMode { get => (VisualizationMode)_vizModeSelected; set => _vizModeSelected = (int)value; }
-
-    public int DyeResolution 
-    {
-        get => _dyeResolution;
-        init => _dyeResolution = value;
-    }
-    
-    public int SimResolution
-    {
-        get => _simResolution;
-        init => _simResolution = value;
-    }
-
     private int _simResolutionIndex = SimResolutionValues.Length - 2;
     private int _dyeResolutionIndex = 0;
     private static readonly string[] DyeResolutionLabels = new string[] { "high (1024)", "medium (512)", "low (256)", "very low (128)" };
     private static readonly int[] DyeResolutionValues = new int[] { 1024, 512, 256, 128 };
     private static readonly string[] SimResolutionLabels = new string[] { "very low (32)", "low (64)", "medium (128)", "high (256)", "very high(512)", "ultra (1024)" };
     private static readonly int[] SimResolutionValues = new int[] { 32, 64, 128, 256, 512, 1024 };
+    private string _screenshotFolder;
 
     private readonly IList<Pointer> _pointers = new List<Pointer>
     {
@@ -90,8 +75,8 @@ class FluidSimulation
     private VertexArrayObject<float, ushort> _vao;
     private readonly static float[] Vertices = new float[] { -1, -1, -1, 1, 1, 1, 1, -1 };
     private readonly static ushort[] Indices = new ushort[] { 0, 1, 2, 0, 2, 3 };
-    private bool LinearFiltering { get; init; } = false;
-    public bool HalfFloat { get; init; } = true;
+    private bool _linearFiltering = false;
+    private bool _halfFloat = true;
     private readonly static InternalFormat Rgba32f = InternalFormat.Rgba32f;
     private readonly static InternalFormat Rg32f = InternalFormat.RG32f;
     private readonly static InternalFormat R32f = InternalFormat.R32f;
@@ -110,14 +95,6 @@ class FluidSimulation
     #endregion
 
     #region GUI
-    public enum VisualizationMode
-    {
-        Velocity,
-        Curl,
-        Divergence,
-        Pressure,
-        Dye
-    }
     private Vector2 _guiPanelSize;
     private readonly static string[] VizModes = Enum.GetNames<VisualizationMode>();
     #endregion
@@ -148,10 +125,30 @@ class FluidSimulation
         public (float r, float g, float b) Color { get; set; }
     }
 
-    public FluidSimulation(int width, int height)
+    public FluidSimulation(SimulationConfiguration config)
     {
+        _paused = config.Paused;
+        _steppingMode = config.Stepping;
+        _pressure = config.Pressure;
+        _pressureIterations = config.PressureIterations;
+        _curl = config.Curl;
+        _velocityDissipation = config.VelocityDissipation;
+        _densityDissipation = config.DensityDissipation;
+        _splatDx = config.DefaultSplatDx;
+        _splatDy = config.DefaultSplatDy;
+        _splatRadius = config.SplatRadius;
+        _splatForce = 6000f;
+        _simResolution = config.SimResolution;
+        _dyeResolution = config.DyeResolution;
+        _vizModeSelected = (int)config.ActiveVisualizationMode;
+        _halfFloat = config.HalfFloat;
+        _linearFiltering = config.LinearFiltering;
+        _screenshotFolder = string.IsNullOrEmpty(config.ScreenshotsFolder)
+            ? Path.GetDirectoryName(Environment.ProcessPath)
+            : config.ScreenshotsFolder;
+
         var options = WindowOptions.Default;
-        options.Size = new Vector2D<int>(width, height);
+        options.Size = new Vector2D<int>(config.WindowWidth, config.WindowHeight);
         options.Title = "Fluidsim";
 #if OPENGLES
         options.API = new GraphicsAPI(
@@ -161,7 +158,7 @@ class FluidSimulation
             new APIVersion(3, 0));
 #endif
         _window = Window.Create(options);
-        _guiPanelSize = new Vector2(400, height);
+        _guiPanelSize = new Vector2(400, config.WindowHeight);
         _actualWindowWidth = _window.Size.X - _guiPanelSize.X;
         _aspectRatio = _actualWindowWidth / _window.Size.Y;
         _window.Load += OnLoad;
@@ -227,14 +224,14 @@ class FluidSimulation
 
     private void InitFrameBuffers()
     {
-        var (dyeX, dyeY) = GetFboSizeFromResolution(DyeResolution);
-        var (x, y) = GetFboSizeFromResolution(SimResolution);
+        var (dyeX, dyeY) = GetFboSizeFromResolution(_dyeResolution);
+        var (x, y) = GetFboSizeFromResolution(_simResolution);
 
-        var filtering = LinearFiltering ? GLEnum.Linear : GLEnum.Nearest;
-        var rgba = HalfFloat ? Rgba16f : Rgba32f;
-        var rg = HalfFloat ? Rg16f : Rg32f;
-        var r = HalfFloat ? R16f : R32f;
-        var type = HalfFloat ? GLEnum.HalfFloat : GLEnum.Float;
+        var filtering = _linearFiltering ? GLEnum.Linear : GLEnum.Nearest;
+        var rgba = _halfFloat ? Rgba16f : Rgba32f;
+        var rg = _halfFloat ? Rg16f : Rg32f;
+        var r = _halfFloat ? R16f : R32f;
+        var type = _halfFloat ? GLEnum.HalfFloat : GLEnum.Float;
 
         _dyeBuff = _bufferFactory.CreateDoubleFrameBuffer(dyeX, dyeY, rgba, PixelFormat.Rgba, type, filtering);
         _velocityBuff = _bufferFactory.CreateDoubleFrameBuffer(x, y, rg, PixelFormat.RG, type, filtering);
@@ -245,8 +242,8 @@ class FluidSimulation
 
     private void ResizeFrameBuffers()
     {
-        var (dyeX, dyeY) = GetFboSizeFromResolution(DyeResolution);
-        var (x, y) = GetFboSizeFromResolution(SimResolution);
+        var (dyeX, dyeY) = GetFboSizeFromResolution(_dyeResolution);
+        var (x, y) = GetFboSizeFromResolution(_simResolution);
 
         _velocityBuff.Resize(x, y);
         _dyeBuff.Resize(dyeX, dyeY);
@@ -255,16 +252,51 @@ class FluidSimulation
         _pressureBuff.Resize(x, y);
     }
 
+    private unsafe void FrameBufferToImage(FrameBufferObject fbo)
+    {
+        var (w, h) = (fbo.Width, fbo.Height);
+        var data = NativeMemory.Alloc((nuint)w * h * 3);
+        try
+        {
+            using var capture = _bufferFactory.CreateFrameBuffer(w, h, InternalFormat.Rgb, PixelFormat.Rgb, GLEnum.UnsignedByte, GLEnum.Nearest);
+            fbo.BlitTo(capture);
+            var span = new Span<byte>(data, (int)(w * h * 3));
+            _gl.BindFramebuffer(FramebufferTarget.ReadFramebuffer, capture.Handle);
+            _gl.PixelStore(PixelStoreParameter.PackAlignment, 1);
+            _gl.ReadPixels(0, 0, (uint)w, (uint)h, GLEnum.Rgb, GLEnum.UnsignedByte, span);
+            var mem = new Memory<byte>(span.ToArray());
+            var img = Image.WrapMemory<Rgb24>(mem, (int)w, (int)h);
+            img.Mutate(x => x.Flip(FlipMode.Vertical));
+            var path = Path.Join(
+                _screenshotFolder,
+               "capture_"  + DateTime.Now.ToString("yyyyMMddTHHmmss") + ".png");
+            img.SaveAsPng(path);
+        }
+        finally
+        {
+            NativeMemory.Free(data);
+        }
+    }
+
     private void InitShaders()
     {
-        foreach (var frag in Directory.EnumerateFiles(".\\Shaders"))
+        var baseVertex = Path.Join("Shaders", "base.vert");
+        var blurVertex = Path.Join("Shaders", "blur.vert");
+        foreach (var frag in Directory.EnumerateFiles("Shaders"))
         {
             if (frag.EndsWith(".vert")) continue;
-            var vertext = frag.EndsWith("\\blur.frag") ? ".\\Shaders\\blur.vert" : ".\\Shaders\\base.vert";
+            var name = Path.GetFileNameWithoutExtension(frag);
+            var vertext = name == "blur" ? blurVertex : baseVertex;
             Console.WriteLine($"COMPILING: {frag} {vertext}");
             var program = new ShaderProgram(_gl, vertext, frag);
-            Shaders.Add(frag.Split("\\")[2].Split(".")[0], program);
+            Shaders.Add(name, program);
         }
+
+        if (_linearFiltering == false)
+        {
+            Shaders["advection"] = Shaders["advection_manual_filtering"];
+        }
+
         Console.WriteLine($"Loaded {Shaders.Count} shader programs.");
     }
     
@@ -344,7 +376,11 @@ class FluidSimulation
                     _vizModeSelected = (int)VisualizationMode.Dye;
                     break;
                 case Key.Space:
-                    Splat(0.5f, 0.5f, _splatDx, _splatDy, _splatColor.X, _splatColor.Y, _splatColor.Z, _splatRadius);
+                    Splat(0.5f, 0.5f, 
+                        _splatDx,
+                        _splatDy, 
+                        _splatColor.X, _splatColor.Y, _splatColor.Z, 
+                        _splatRadius);
                     break;
                 case Key.P:
                     _paused = !_paused;
@@ -517,8 +553,11 @@ class FluidSimulation
         ImGui.ColorEdit4("splat color", ref _splatColor);
         if (ImGui.Button("splat"))
         {
-            Splat(0.25f, 0.5f, _splatDx, _splatDy, _splatColor.X, _splatColor.Y, _splatColor.Z, _splatRadius);
+            Splat(0.25f, 0.5f, 
+                _splatDx, _splatDy, 
+                _splatColor.X, _splatColor.Y, _splatColor.Z, _splatRadius);
         }
+        ImGui.SameLine(0, -1);
         if (ImGui.Button("random splats"))
         {
             RandomSplats(10);
@@ -540,6 +579,13 @@ class FluidSimulation
         ImGui.SameLine(0, -1);
         ImGui.Image((nint)_dyeBuff.Read.TextureHandle, new Vector2(64, 64), new Vector2(0, 0), new Vector2(1, 1), Vector4.One, new Vector4(1, 0, 0, 1));
         ImGui.SameLine(0, -1);
+
+        SectionText("Captures");
+        ImGui.InputText(string.Empty, ref _screenshotFolder, 260);
+        if (ImGui.Button("take screenshot"))
+        {
+            _screenshotRequested = true;
+        }
     }
 
     private void OnRender(double dt)
@@ -553,6 +599,12 @@ class FluidSimulation
         {
             _resized = false;
             ResizeFrameBuffers();
+        }
+
+        if (_screenshotRequested)
+        {
+            FrameBufferToImage(_dyeBuff.Read);
+            _screenshotRequested = false;
         }
 
         if (_paused == false)
@@ -582,7 +634,7 @@ class FluidSimulation
             vorticityProgram.SetUniform("uVelocity", _velocityBuff.Read.Attach(TextureUnit.Texture0));
             vorticityProgram.SetUniform("uCurl", _curlBuff.Attach(TextureUnit.Texture1));
             vorticityProgram.SetUniform("curl", _curl);
-            vorticityProgram.SetUniform("dt", dt);
+            vorticityProgram.SetUniform("dt", _fixedDt);
             Blit(_velocityBuff.Write);
             _velocityBuff.Swap();
 
@@ -622,18 +674,18 @@ class FluidSimulation
             var advectionProgram = Shaders["advection"];
             advectionProgram.Bind();
             advectionProgram.SetUniform("texelSize", _velocityBuff.TexelSizeX, _velocityBuff.TexelSizeY);
-            if (LinearFiltering == false)
+            if (_linearFiltering == false)
             {
                 advectionProgram.SetUniform("dyeTexelSize", _velocityBuff.TexelSizeX, _velocityBuff.TexelSizeY);
             }
             var velocityId = _velocityBuff.Read.Attach(TextureUnit.Texture0);
             advectionProgram.SetUniform("uVelocity", velocityId);
             advectionProgram.SetUniform("uSource", velocityId);
-            advectionProgram.SetUniform("dt", dt);
+            advectionProgram.SetUniform("dt", _fixedDt);
             advectionProgram.SetUniform("dissipation", _velocityDissipation);
             Blit(_velocityBuff.Write);
             _velocityBuff.Swap();
-            if (LinearFiltering == false)
+            if (_linearFiltering == false)
             {
                 advectionProgram.SetUniform("dyeTexelSize", _dyeBuff.TexelSizeX, _dyeBuff.TexelSizeY);
             }
