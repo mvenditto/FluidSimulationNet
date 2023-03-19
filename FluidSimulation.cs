@@ -24,10 +24,12 @@ class FluidSimulation
     private int _simResolution;
     private int _dyeResolution;
     private int _bloomResolution;
+    private int _sunraysResolution;
     private int _bloomIterations;
     private float _bloomThreshold;
     private float _bloomSoftKnee;
     private float _bloomIntensity;
+    private float _sunraysWeight = 1.0f;
     private int _pressureIterations;
     private float _curl;
     private float _pressure;
@@ -39,6 +41,7 @@ class FluidSimulation
     private float _splatDy;
     private bool _enableBloom = true;
     private bool _enableShading = true;
+    private bool _enableSunrays = true;
     private bool _paused;
     private bool _steppingMode = true;
     private bool _showGui = true;
@@ -92,6 +95,8 @@ class FluidSimulation
     private FrameBufferObject _curlBuff;
     private FrameBufferObject _divergenceBuff;
     private FrameBufferObject _bloom;
+    private FrameBufferObject _sunrays;
+    private FrameBufferObject _sunraysTemp;
     private DoubleFrameBuffer _velocityBuff;
     private DoubleFrameBuffer _pressureBuff;
     private DoubleFrameBuffer _dyeBuff;
@@ -155,6 +160,9 @@ class FluidSimulation
         _bloomSoftKnee = config.BloomSoftKnee;
         _bloomIntensity = config.BloomIntensity;
         _enableBloom = config.Bloom;
+        _enableSunrays = config.Sunrays;
+        _sunraysResolution = config.SunraysResolution;
+        _sunraysWeight = config.SunraysWeight;
 
         _screenshotFolder = string.IsNullOrEmpty(config.ScreenshotsFolder)
             ? Path.GetDirectoryName(Environment.ProcessPath)
@@ -259,7 +267,8 @@ class FluidSimulation
             PixelFormat.Rgb,
             PixelType.UnsignedByte);
 
-        InitBloomFrameBuffers();
+        InitBloomFrameBuffers(); 
+        InitSunraysFrameBuffers();
     }
 
     private void InitBloomFrameBuffers()
@@ -281,6 +290,16 @@ class FluidSimulation
         }
     }
 
+    private void InitSunraysFrameBuffers()
+    {
+        var (w, h) = GetFboSizeFromResolution(_sunraysResolution);
+        var filtering = _linearFiltering ? GLEnum.Linear : GLEnum.Nearest;
+        var r = _halfFloat ? R16f : R32f;
+        var type = _halfFloat ? GLEnum.HalfFloat : GLEnum.Float;
+        _sunrays = _bufferFactory.CreateFrameBuffer(w, h, r, PixelFormat.Red, type, filtering);
+        _sunraysTemp = _bufferFactory.CreateFrameBuffer(w, h, r, PixelFormat.Red, type, filtering);
+    }
+
     private void ResizeFrameBuffers()
     {
         var (dyeX, dyeY) = GetFboSizeFromResolution(_dyeResolution);
@@ -298,6 +317,29 @@ class FluidSimulation
             bloomFbo.Dispose();
         }
         InitBloomFrameBuffers();
+
+        _sunrays.Dispose();
+        _sunraysTemp.Dispose();
+        InitSunraysFrameBuffers();
+    }
+
+    private void ApplySunrays()
+    {
+        var source = _dyeBuff.Read;
+        var mask = _dyeBuff.Write;
+        var destination = _sunrays;
+
+        _gl.Disable(EnableCap.Blend);
+        var sunraysMaskProgram = Shaders["sunrays_mask"];
+        sunraysMaskProgram.Bind();
+        sunraysMaskProgram.SetUniform("uTexture", source.Attach(TextureUnit.Texture0));
+        Blit(mask);
+
+        var sunraysProgram = Shaders["sunrays"];
+        sunraysProgram.Bind();
+        sunraysProgram.SetUniform("weight", _sunraysWeight);
+        sunraysProgram.SetUniform("uTexture", mask.Attach(TextureUnit.Texture0));
+        Blit(destination);
     }
 
     private void ApplyBloom()
@@ -355,6 +397,23 @@ class FluidSimulation
         Blit(destination);
     }
 
+    private void Blur(FrameBufferObject target, FrameBufferObject temp, int iterations)
+    {
+        var blurProgram = Shaders["blur"];
+        blurProgram.Bind();
+        for (var i = 0; i < iterations; i++)
+        {
+            blurProgram.SetUniform("texelSize", target.TexelSizeX, 0.0);
+            blurProgram.SetUniform("uTexture", target.Attach(TextureUnit.Texture0));
+            Blit(temp);
+
+
+            blurProgram.SetUniform("texelSize", 0.0, target.TexelSizeY);
+            blurProgram.SetUniform("uTexture", temp.Attach(TextureUnit.Texture0));
+            Blit(target);
+        }
+    }
+
     private unsafe void FrameBufferToImage(FrameBufferObject fbo)
     {
         var (w, h) = (fbo.Width, fbo.Height);
@@ -386,6 +445,7 @@ class FluidSimulation
         var defines = new List<string>();
         if (_enableBloom) defines.Add("BLOOM");
         if (_enableShading) defines.Add("SHADING");
+        if (_enableSunrays) defines.Add("SUNRAYS");
         return defines;
     }
 
@@ -685,8 +745,13 @@ class FluidSimulation
         {
             Shaders["display"].UpdateDefines(GetShaderDefines());
         }
-        ImGui.SliderFloat("bloom intensity", ref _bloomIntensity, 0.1f, 0.2f);
+        ImGui.SliderFloat("bloom intensity", ref _bloomIntensity, 0.1f, 2.0f);
         ImGui.SliderFloat("bloom threshold", ref _bloomThreshold, 0.0f, 0.1f);
+        if (ImGui.Checkbox("sunrays", ref _enableSunrays))
+        {
+            Shaders["display"].UpdateDefines(GetShaderDefines());
+        }
+        ImGui.SliderFloat("sunrays weight", ref _sunraysWeight, 0.3f, 1.0f);
 
         SectionText("FBOs");
         TextSameLine("   vel  ", "    curl", "      div  ", "   pre  ", "     dye");
@@ -848,11 +913,16 @@ class FluidSimulation
                 {
                     ApplyBloom();
                 }
+                if (_enableSunrays)
+                {
+                    ApplySunrays();
+                    Blur(_sunrays, _sunraysTemp, 1);
+                }
                 _gl.BlendFunc(BlendingFactor.One, BlendingFactor.OneMinusSrcAlpha);
                 _gl.Enable(EnableCap.Blend);
                 var displayProgram = Shaders["display"];
                 displayProgram.Bind();
-                 var (width, height) = ((uint)_actualWindowWidth, (uint)_window.FramebufferSize.Y);
+                var (width, height) = ((uint)_actualWindowWidth, (uint)_window.FramebufferSize.Y);
                 if (_enableShading)
                 {
                     displayProgram.SetUniform("texelSize", 1.0f / width, 1.0f / height);
@@ -866,6 +936,10 @@ class FluidSimulation
                         _ditheringTexture.Width / width, 
                         _ditheringTexture.Height / height);
                     displayProgram.SetUniform("ditherScale", scaleX, scaleY);
+                }
+                if (_enableSunrays)
+                {
+                    displayProgram.SetUniform("uSunrays", _sunrays.Attach(TextureUnit.Texture3));
                 }
                 Blit(null);
                 break;

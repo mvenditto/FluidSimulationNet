@@ -20,11 +20,14 @@ public record SimulationConfiguration
     public bool Stepping { get; init; } = false;
     public bool ShowGui { get; init; } = true;
     public bool Bloom { get; init; } = true;
+    public bool Sunrays { get; init; } = true;  
+    public int SunraysResolution { get; init; } = 196;
     public int BloomIterations { get; init; } = 8;
     public int BloomResolution { get; init; } = 256;
     public float BloomIntensity { get; init; } = 0.8f;
     public float BloomThreshold { get; init; } = 0.6f;
     public float BloomSoftKnee { get; init; } = 0.7f;
+    public float SunraysWeight { get; init; } = 1.0f;
     public VisualizationMode ActiveVisualizationMode { get; init; } = VisualizationMode.Fancy;
     public string? ScreenshotsFolder { get; init; }
 }
