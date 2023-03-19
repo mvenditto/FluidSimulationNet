@@ -1,4 +1,7 @@
-﻿using System.Numerics;
+﻿using System.Data;
+using System.IO;
+using System.Numerics;
+using Silk.NET.GLFW;
 #if OPENGLES
 using Silk.NET.OpenGLES;
 #else
@@ -11,13 +14,25 @@ public class ShaderProgram : IDisposable
 {
     private uint _handle;
     private GL _gl;
+    private string _vertSource;
+    private string _fragSource;
 
-    public ShaderProgram(GL gl, string vertexPath, string fragmentPath)
+    public ShaderProgram(GL gl, string vertexPath, string fragmentPath, IEnumerable<string> fragDefines)
     {
         _gl = gl;
+        _vertSource = File.ReadAllText(vertexPath);
+        _fragSource = File.ReadAllText(fragmentPath);
+        Initialize(_vertSource, _fragSource, fragDefines);
+    }
 
-        uint vertex = LoadShader(ShaderType.VertexShader, vertexPath);
-        uint fragment = LoadShader(ShaderType.FragmentShader, fragmentPath);
+    private void Initialize(string vertSource, string fragSource, IEnumerable<string> fragDefines)
+    {
+        uint vertex = LoadShader(ShaderType.VertexShader, vertSource);
+        uint fragment = LoadShader(ShaderType.FragmentShader, fragSource, fragDefines);
+        if (_handle != 0)
+        {
+            _gl.DeleteProgram(_handle);
+        }
         _handle = _gl.CreateProgram();
         _gl.AttachShader(_handle, vertex);
         _gl.AttachShader(_handle, fragment);
@@ -128,10 +143,25 @@ public class ShaderProgram : IDisposable
         _gl.DeleteProgram(_handle);
     }
 
-    private uint LoadShader(ShaderType type, string path)
+    public void UpdateDefines(IEnumerable<string>? defines = null)
     {
-        string src = File.ReadAllText(path);
-        src = "#version 100\n" + src; // TODO
+        Initialize(_vertSource, _fragSource, defines);
+    }
+
+    private uint LoadShader(ShaderType type, string src, IEnumerable<string>? defines = null)
+    {
+        var headers = "#version 100\n"; // TODO
+
+        if (defines != null)
+        {
+            foreach (var define in defines)
+            {
+                headers += "#define " + define + "\n";
+            }
+        }
+
+        src = headers + src;
+        
         uint handle = _gl.CreateShader(type);
         _gl.ShaderSource(handle, src);
         _gl.CompileShader(handle);

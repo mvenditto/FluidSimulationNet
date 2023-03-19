@@ -1,6 +1,6 @@
-﻿#define SHADING
-#define BLOOM
-#define SUNRAYS
+﻿// #define SHADING
+// #define BLOOM
+// #define SUNRAYS
 
 precision highp float;
 precision highp sampler2D;
@@ -61,7 +61,6 @@ void main () {
 #ifdef BLOOM
     float noise = texture2D(uDithering, vUv * ditherScale).r;
     noise = noise * 2.0 - 1.0;
-    // noise = mix(-NOISE_GRANULARITY, NOISE_GRANULARITY, random(vUv));
     bloom += noise / 255.0;
     bloom = linearToGamma(bloom);
     c += bloom;

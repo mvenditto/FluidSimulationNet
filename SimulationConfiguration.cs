@@ -19,6 +19,12 @@ public record SimulationConfiguration
     public bool LinearFiltering { get; init; } = false;
     public bool Stepping { get; init; } = false;
     public bool ShowGui { get; init; } = true;
-    public VisualizationMode ActiveVisualizationMode { get; init; } = VisualizationMode.Dye;
+    public bool Bloom { get; init; } = true;
+    public int BloomIterations { get; init; } = 8;
+    public int BloomResolution { get; init; } = 256;
+    public float BloomIntensity { get; init; } = 0.8f;
+    public float BloomThreshold { get; init; } = 0.6f;
+    public float BloomSoftKnee { get; init; } = 0.7f;
+    public VisualizationMode ActiveVisualizationMode { get; init; } = VisualizationMode.Fancy;
     public string? ScreenshotsFolder { get; init; }
 }

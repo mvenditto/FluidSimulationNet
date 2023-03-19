@@ -6,5 +6,6 @@ public enum VisualizationMode
     Curl,
     Divergence,
     Pressure,
-    Dye
+    Dye,
+    Fancy
 }

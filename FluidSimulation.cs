@@ -2,14 +2,11 @@
 using System.Diagnostics;
 using FluidSim.Abstractions;
 using FluidSim.Utilities;
-using FluidSim.Extensions;
 using Silk.NET.Maths;
 using Silk.NET.Windowing;
 using Silk.NET.Input;
 using ImGuiNET;
 using System.Runtime.InteropServices;
-using SixLabors.ImageSharp.ColorSpaces;
-using static FluidSim.FluidSimulation;
 #if OPENGLES
 using Silk.NET.OpenGLES;
 using Silk.NET.OpenGLES.Extensions.ImGui;
@@ -26,6 +23,11 @@ class FluidSimulation
     
     private int _simResolution;
     private int _dyeResolution;
+    private int _bloomResolution;
+    private int _bloomIterations;
+    private float _bloomThreshold;
+    private float _bloomSoftKnee;
+    private float _bloomIntensity;
     private int _pressureIterations;
     private float _curl;
     private float _pressure;
@@ -35,7 +37,8 @@ class FluidSimulation
     private float _splatForce = 6000f;
     private float _splatDx;
     private float _splatDy;
-
+    private bool _enableBloom = true;
+    private bool _enableShading = true;
     private bool _paused;
     private bool _steppingMode = true;
     private bool _showGui = true;
@@ -88,10 +91,13 @@ class FluidSimulation
     #region Framebuffers
     private FrameBufferObject _curlBuff;
     private FrameBufferObject _divergenceBuff;
+    private FrameBufferObject _bloom;
     private DoubleFrameBuffer _velocityBuff;
     private DoubleFrameBuffer _pressureBuff;
     private DoubleFrameBuffer _dyeBuff;
-    private Dictionary<string, ShaderProgram> Shaders = new();
+    private IDictionary<string, ShaderProgram> Shaders = new Dictionary<string, ShaderProgram>();
+    private IList<FrameBufferObject> _bloomFramebuffers = new List<FrameBufferObject>();
+    private Abstractions.Texture _ditheringTexture;
     #endregion
 
     #region GUI
@@ -143,6 +149,13 @@ class FluidSimulation
         _vizModeSelected = (int)config.ActiveVisualizationMode;
         _halfFloat = config.HalfFloat;
         _linearFiltering = config.LinearFiltering;
+        _bloomIterations = config.BloomIterations;
+        _bloomResolution = config.BloomResolution;
+        _bloomThreshold = config.BloomThreshold;
+        _bloomSoftKnee = config.BloomSoftKnee;
+        _bloomIntensity = config.BloomIntensity;
+        _enableBloom = config.Bloom;
+
         _screenshotFolder = string.IsNullOrEmpty(config.ScreenshotsFolder)
             ? Path.GetDirectoryName(Environment.ProcessPath)
             : config.ScreenshotsFolder;
@@ -238,6 +251,34 @@ class FluidSimulation
         _curlBuff = _bufferFactory.CreateFrameBuffer(x, y, r, PixelFormat.Red, type, GLEnum.Nearest);
         _divergenceBuff = _bufferFactory.CreateFrameBuffer(x, y, r, PixelFormat.Red, type, GLEnum.Nearest);
         _pressureBuff = _bufferFactory.CreateDoubleFrameBuffer(x, y, r, PixelFormat.Red, type, GLEnum.Nearest);
+
+        _ditheringTexture = new Abstractions.Texture(
+            _gl,
+            "Resources\\LDR_LLL1_0.png",
+            InternalFormat.Rgb,
+            PixelFormat.Rgb,
+            PixelType.UnsignedByte);
+
+        InitBloomFrameBuffers();
+    }
+
+    private void InitBloomFrameBuffers()
+    {
+        Console.WriteLine("BLOOM_FILTERS");
+        var (w, h) = GetFboSizeFromResolution(_bloomResolution);
+        var filtering = _linearFiltering ? GLEnum.Linear : GLEnum.Nearest;
+        var rgba = _halfFloat ? Rgba16f : Rgba32f;
+        var type = _halfFloat ? GLEnum.HalfFloat : GLEnum.Float;
+        _bloom = _bufferFactory.CreateFrameBuffer(w, h, rgba, PixelFormat.Rgba, type, filtering);
+        _bloomFramebuffers.Clear();
+        for (var i = 0; i < _bloomIterations; i++)
+        {
+            var width = w >> (i + 1);
+            var height = h >> (i + 1);
+            if (width < 2 || height < 2) break;
+            var fbo = _bufferFactory.CreateFrameBuffer(width, height, rgba, PixelFormat.Rgba, type, filtering);
+            _bloomFramebuffers.Add(fbo);
+        }
     }
 
     private void ResizeFrameBuffers()
@@ -250,6 +291,68 @@ class FluidSimulation
         _curlBuff.Resize(x, y);
         _divergenceBuff.Resize(x, y);
         _pressureBuff.Resize(x, y);
+
+        _bloom.Dispose();
+        foreach(var bloomFbo in _bloomFramebuffers)
+        {
+            bloomFbo.Dispose();
+        }
+        InitBloomFrameBuffers();
+    }
+
+    private void ApplyBloom()
+    {
+        var source = _dyeBuff.Read;
+        var destination = _bloom;
+
+        if (_bloomFramebuffers.Count < 2) return;
+
+        var last = destination;
+
+        _gl.Disable(EnableCap.Blend);
+
+        var bloomPrefilterProgram = Shaders["blur_prefilter"];
+        bloomPrefilterProgram.Bind();
+        var knee = _bloomThreshold * _bloomSoftKnee + 0.0001;
+        var curve0 = _bloomThreshold - knee;
+        var curve1 = knee * 2;
+        var curve2 = 0.25 / knee;
+        bloomPrefilterProgram.SetUniform("curve", curve0, curve1, curve2);
+        bloomPrefilterProgram.SetUniform("threshold", _bloomThreshold);
+        bloomPrefilterProgram.SetUniform("uTexture", source.Attach(TextureUnit.Texture0));
+        Blit(last);
+
+        var bloomBlurProgram = Shaders["bloom_blur"];
+        bloomBlurProgram.Bind();
+
+        for (var i = 0; i < _bloomFramebuffers.Count; i++)
+        {
+            var dest = _bloomFramebuffers[i];
+            bloomBlurProgram.SetUniform("texelSize", last.TexelSizeX, last.TexelSizeY);
+            bloomBlurProgram.SetUniform("uTexture", last.Attach(TextureUnit.Texture0));
+            Blit(dest);
+            last = dest;
+        }
+
+        _gl.BlendFunc(BlendingFactor.One, BlendingFactor.One);
+        _gl.Enable(EnableCap.Blend);
+
+        for (var i = _bloomFramebuffers.Count - 2; i >= 0; i--)
+        {
+            var baseTex = _bloomFramebuffers[i];
+            bloomBlurProgram.SetUniform("texelSize", last.TexelSizeX, last.TexelSizeY);
+            bloomBlurProgram.SetUniform("uTexture", last.Attach(TextureUnit.Texture0));
+            Blit(baseTex);
+            last = baseTex;
+        }
+
+        _gl.Disable(EnableCap.Blend);
+        var bloomFinalProgram = Shaders["bloom_final"];
+        bloomFinalProgram.Bind();
+        bloomFinalProgram.SetUniform("texelSize", last.TexelSizeX, last.TexelSizeY);
+        bloomFinalProgram.SetUniform("uTexture", last.Attach(TextureUnit.Texture0));
+        bloomFinalProgram.SetUniform("intensity", _bloomIntensity);
+        Blit(destination);
     }
 
     private unsafe void FrameBufferToImage(FrameBufferObject fbo)
@@ -278,6 +381,14 @@ class FluidSimulation
         }
     }
 
+    private IEnumerable<string> GetShaderDefines()
+    {
+        var defines = new List<string>();
+        if (_enableBloom) defines.Add("BLOOM");
+        if (_enableShading) defines.Add("SHADING");
+        return defines;
+    }
+
     private void InitShaders()
     {
         var baseVertex = Path.Join("Shaders", "base.vert");
@@ -288,7 +399,8 @@ class FluidSimulation
             var name = Path.GetFileNameWithoutExtension(frag);
             var vertext = name == "blur" ? blurVertex : baseVertex;
             Console.WriteLine($"COMPILING: {frag} {vertext}");
-            var program = new ShaderProgram(_gl, vertext, frag);
+            IEnumerable<string>? defines = name == "display" ? GetShaderDefines() : null;
+            var program = new ShaderProgram(_gl, vertext, frag, defines);
             Shaders.Add(name, program);
         }
 
@@ -399,7 +511,7 @@ class FluidSimulation
     {
         if (target == null)
         {
-            _gl.Viewport(_window.FramebufferSize);
+            _gl.Viewport(0, 0, (uint)_actualWindowWidth, (uint)_window.FramebufferSize.Y);
             _gl.BindFramebuffer(GLEnum.Framebuffer, 0);
             _gl.ClearColor(0.0f, 0.0f, 0.0f, 1.0f);
             _gl.Clear(ClearBufferMask.ColorBufferBit);
@@ -564,7 +676,17 @@ class FluidSimulation
         }
 
         SectionText("Display");
-        ImGui.Combo("viz. mode", ref _vizModeSelected, VizModes, VizModes.Length);
+        ImGui.Combo("viz. mode", ref _vizModeSelected, VizModes, VizModes.Length); 
+        if (ImGui.Checkbox("shading", ref _enableShading))
+        {
+            Shaders["display"].UpdateDefines(GetShaderDefines());
+        }
+        if (ImGui.Checkbox("bloom", ref _enableBloom))
+        {
+            Shaders["display"].UpdateDefines(GetShaderDefines());
+        }
+        ImGui.SliderFloat("bloom intensity", ref _bloomIntensity, 0.1f, 0.2f);
+        ImGui.SliderFloat("bloom threshold", ref _bloomThreshold, 0.0f, 0.1f);
 
         SectionText("FBOs");
         TextSameLine("   vel  ", "    curl", "      div  ", "   pre  ", "     dye");
@@ -720,6 +842,32 @@ class FluidSimulation
                 _pressureBuff.Read.BlitToScreen(_window.FramebufferSize); break;
             case VisualizationMode.Dye:
                 _dyeBuff.Read.BlitToScreen(new Vector2D<int>((int)_actualWindowWidth, _window.Size.Y)); 
+                break;
+            case VisualizationMode.Fancy:
+                if (_enableBloom)
+                {
+                    ApplyBloom();
+                }
+                _gl.BlendFunc(BlendingFactor.One, BlendingFactor.OneMinusSrcAlpha);
+                _gl.Enable(EnableCap.Blend);
+                var displayProgram = Shaders["display"];
+                displayProgram.Bind();
+                 var (width, height) = ((uint)_actualWindowWidth, (uint)_window.FramebufferSize.Y);
+                if (_enableShading)
+                {
+                    displayProgram.SetUniform("texelSize", 1.0f / width, 1.0f / height);
+                }
+                displayProgram.SetUniform("uTexture", _dyeBuff.Read.Attach(TextureUnit.Texture0));
+                if (_enableBloom)
+                {
+                    displayProgram.SetUniform("uBloom", _bloom.Attach(TextureUnit.Texture1));
+                    displayProgram.SetUniform("uDithering", _ditheringTexture.Attach(TextureUnit.Texture2));
+                    var (scaleX, scaleY) = (
+                        _ditheringTexture.Width / width, 
+                        _ditheringTexture.Height / height);
+                    displayProgram.SetUniform("ditherScale", scaleX, scaleY);
+                }
+                Blit(null);
                 break;
             default:
                 break;
