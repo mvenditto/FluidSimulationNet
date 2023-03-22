@@ -181,7 +181,7 @@ class FluidSimulation
 #endif
         _window = Window.Create(options);
         _guiPanelSize = new Vector2(400, config.WindowHeight);
-        _actualWindowWidth = _window.Size.X - _guiPanelSize.X;
+        _actualWindowWidth = _window.Size.X;// - _guiPanelSize.X;
         _aspectRatio = _actualWindowWidth / _window.Size.Y;
         _window.Load += OnLoad;
         _window.Render += OnRender;
@@ -191,7 +191,7 @@ class FluidSimulation
 
     private void OnResize(Vector2D<int> newSize)
     {
-        _actualWindowWidth = newSize.X - _guiPanelSize.X;
+        _actualWindowWidth = newSize.X/* - _guiPanelSize.X*/;
         _aspectRatio = _actualWindowWidth / newSize.Y;
         _guiPanelSize.Y = newSize.Y;
         _resized = true;
