@@ -111,8 +111,11 @@ class FluidSimulation
     private Vector2 _guiPanelSize;
     private readonly static string[] VizModes = Enum.GetNames<VisualizationMode>();
     // to flip texture drawed with ImgGui
-    private readonly static Vector2 _uv0 = new(0, 1);
-    private readonly static Vector2 _uv1 = new(1, 0);
+    private readonly static Vector2 FboPrevieSize = new(64, 64);
+    private readonly static Vector2 FboPreviewUv0 = new(0, 1);
+    private readonly static Vector2 FboPreviewUv1 = new(1, 0);
+    private readonly static Vector4 FboPreviewBorderColor = new(1, 0, 0, 1);
+    private readonly static Vector4 GuiSectionTitleColor = new Vector4(0.86f, 0.6f, 0f, 1);
     #endregion
 
     private float CorrectDeltaX(float delta)
@@ -702,7 +705,7 @@ class FluidSimulation
         static void SectionText(string text)
         {
             ImGui.Spacing();
-            ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.86f, 0.6f, 0f, 1));
+            ImGui.PushStyleColor(ImGuiCol.Text, GuiSectionTitleColor);
             ImGui.Text(text);
             ImGui.PopStyleColor();
             ImGui.Separator();
@@ -799,15 +802,15 @@ class FluidSimulation
         SectionText("FBOs");
         TextSameLine("   vel  ", "    curl", "      div  ", "   pre  ", "     dye");
         ImGui.Spacing();
-        ImGui.Image((nint)_velocityBuff.Read.TextureHandle, new Vector2(64, 64), _uv0, _uv1);
+        ImGui.Image((nint)_velocityBuff.Read.TextureHandle, FboPrevieSize, FboPreviewUv0, FboPreviewUv1);
         ImGui.SameLine(0, -1);
-        ImGui.Image((nint)_curlBuff.TextureHandle, new Vector2(64, 64), _uv0, _uv1);
+        ImGui.Image((nint)_curlBuff.TextureHandle, FboPrevieSize, FboPreviewUv0, FboPreviewUv1);
         ImGui.SameLine(0, -1);
-        ImGui.Image((nint)_divergenceBuff.TextureHandle, new Vector2(64, 64), _uv0, _uv1);
+        ImGui.Image((nint)_divergenceBuff.TextureHandle, FboPrevieSize, FboPreviewUv0, FboPreviewUv1);
         ImGui.SameLine(0, -1);
-        ImGui.Image((nint)_pressureBuff.Read.TextureHandle, new Vector2(64, 64), _uv0, _uv1);
+        ImGui.Image((nint)_pressureBuff.Read.TextureHandle, FboPrevieSize, FboPreviewUv0, FboPreviewUv1);
         ImGui.SameLine(0, -1);
-        ImGui.Image((nint)_dyeBuff.Read.TextureHandle, new Vector2(64, 64), _uv0, _uv1, Vector4.One, new Vector4(1, 0, 0, 1));
+        ImGui.Image((nint)_dyeBuff.Read.TextureHandle, FboPrevieSize, FboPreviewUv0, FboPreviewUv1, Vector4.One, FboPreviewBorderColor);
         ImGui.SameLine(0, -1);
 
         SectionText("Captures");
