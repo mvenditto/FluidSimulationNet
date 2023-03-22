@@ -107,6 +107,7 @@ class FluidSimulation
     #endregion
 
     #region GUI
+    private bool _guiCollapsed = false;
     private Vector2 _guiPanelSize;
     private readonly static string[] VizModes = Enum.GetNames<VisualizationMode>();
     #endregion
@@ -491,6 +492,13 @@ class FluidSimulation
         return pointer;
     }
 
+    private bool IsOverGui(Vector2 position)
+    {
+        if (position.X < (_window.Size.X - _guiPanelSize.X)) return false;
+
+        return _guiCollapsed == false;
+    }
+
     private void InitInputs()
     {
         _input = _window.CreateInput();
@@ -500,6 +508,7 @@ class FluidSimulation
             mouse.MouseDown += (mouse, _) =>
             {
                 var pos = mouse.Position;
+                if (IsOverGui(pos)) return;
                 var p = GetPointerFromMouse(mouse);
                 p.IsDown = true;
                 p.Moved = false;
@@ -779,6 +788,8 @@ class FluidSimulation
         {
             _screenshotRequested = true;
         }
+
+        _guiCollapsed = ImGui.IsWindowCollapsed();
     }
 
     private void OnRender(double dt)
