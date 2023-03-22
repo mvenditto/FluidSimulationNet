@@ -3,14 +3,7 @@
 
 # Preview :eyes:
 
-<img width="1149" height="550" src="./docs/fluid_fancy_screenshot.png">
-
-## TODO list :construction:
-- [X] window (FBOs) resize
-- [X] bloom
-- [X] sunrays
-- [ ] obstacles
-- [ ] fix bloom dither(?) artifacts
+<img width="1149" height="550" src="./docs/fluid_fancy3_screenshot.png">
 
 # Other references
   - [GPU Gems - Chapter 38. Fast Fluid Dynamics Simulation on the GPU](https://developer.nvidia.com/gpugems/gpugems/part-vi-beyond-triangles/chapter-38-fast-fluid-dynamics-simulation-gpu)
