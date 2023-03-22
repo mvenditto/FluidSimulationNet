@@ -103,6 +103,7 @@ class FluidSimulation
     private IDictionary<string, ShaderProgram> Shaders = new Dictionary<string, ShaderProgram>();
     private IList<FrameBufferObject> _bloomFramebuffers = new List<FrameBufferObject>();
     private Abstractions.Texture _ditheringTexture;
+    private Vector2D<float> _ditherScale;
     #endregion
 
     #region GUI
@@ -263,9 +264,14 @@ class FluidSimulation
         _ditheringTexture = new Abstractions.Texture(
             _gl,
             "Resources\\LDR_LLL1_0.png",
-            InternalFormat.Rgb,
-            PixelFormat.Rgb,
+            InternalFormat.Rgba,
+            PixelFormat.Rgba,
             PixelType.UnsignedByte);
+
+        _ditherScale = new Vector2D<float>(
+            _actualWindowWidth / (float) _ditheringTexture.Width,
+            _window.FramebufferSize.Y / (float) _ditheringTexture.Height
+         );
 
         InitBloomFrameBuffers(); 
         InitSunraysFrameBuffers();
@@ -932,10 +938,7 @@ class FluidSimulation
                 {
                     displayProgram.SetUniform("uBloom", _bloom.Attach(TextureUnit.Texture1));
                     displayProgram.SetUniform("uDithering", _ditheringTexture.Attach(TextureUnit.Texture2));
-                    var (scaleX, scaleY) = (
-                        _ditheringTexture.Width / width, 
-                        _ditheringTexture.Height / height);
-                    displayProgram.SetUniform("ditherScale", scaleX, scaleY);
+                    displayProgram.SetUniform("ditherScale", _ditherScale.X, _ditherScale.Y);
                 }
                 if (_enableSunrays)
                 {
