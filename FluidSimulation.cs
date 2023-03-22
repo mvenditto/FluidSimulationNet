@@ -110,6 +110,9 @@ class FluidSimulation
     private bool _guiCollapsed = false;
     private Vector2 _guiPanelSize;
     private readonly static string[] VizModes = Enum.GetNames<VisualizationMode>();
+    // to flip texture drawed with ImgGui
+    private readonly static Vector2 _uv0 = new(0, 1);
+    private readonly static Vector2 _uv1 = new(1, 0);
     #endregion
 
     private float CorrectDeltaX(float delta)
@@ -796,15 +799,15 @@ class FluidSimulation
         SectionText("FBOs");
         TextSameLine("   vel  ", "    curl", "      div  ", "   pre  ", "     dye");
         ImGui.Spacing();
-        ImGui.Image((nint)_velocityBuff.Read.TextureHandle, new Vector2(64, 64));
+        ImGui.Image((nint)_velocityBuff.Read.TextureHandle, new Vector2(64, 64), _uv0, _uv1);
         ImGui.SameLine(0, -1);
-        ImGui.Image((nint)_curlBuff.TextureHandle, new Vector2(64, 64));
+        ImGui.Image((nint)_curlBuff.TextureHandle, new Vector2(64, 64), _uv0, _uv1);
         ImGui.SameLine(0, -1);
-        ImGui.Image((nint)_divergenceBuff.TextureHandle, new Vector2(64, 64));
+        ImGui.Image((nint)_divergenceBuff.TextureHandle, new Vector2(64, 64), _uv0, _uv1);
         ImGui.SameLine(0, -1);
-        ImGui.Image((nint)_pressureBuff.Read.TextureHandle, new Vector2(64, 64));
+        ImGui.Image((nint)_pressureBuff.Read.TextureHandle, new Vector2(64, 64), _uv0, _uv1);
         ImGui.SameLine(0, -1);
-        ImGui.Image((nint)_dyeBuff.Read.TextureHandle, new Vector2(64, 64), new Vector2(0, 0), new Vector2(1, 1), Vector4.One, new Vector4(1, 0, 0, 1));
+        ImGui.Image((nint)_dyeBuff.Read.TextureHandle, new Vector2(64, 64), _uv0, _uv1, Vector4.One, new Vector4(1, 0, 0, 1));
         ImGui.SameLine(0, -1);
 
         SectionText("Captures");
