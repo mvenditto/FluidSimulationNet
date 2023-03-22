@@ -421,6 +421,31 @@ class FluidSimulation
         }
     }
 
+    private unsafe void CaptureWindowFramebuffer()
+    {
+        var (w, h) = (_window.FramebufferSize.X, _window.FramebufferSize.Y);
+
+        var data = NativeMemory.Alloc((nuint)(w * h * 3));
+        try
+        {
+            var span = new Span<byte>(data, (int)(w * h * 3));
+            _gl.BindFramebuffer(FramebufferTarget.ReadFramebuffer, 0);
+            _gl.PixelStore(PixelStoreParameter.PackAlignment, 1);
+            _gl.ReadPixels(0, 0, (uint)w, (uint)h, GLEnum.Rgb, GLEnum.UnsignedByte, span);
+            var mem = new Memory<byte>(span.ToArray());
+            var img = Image.WrapMemory<Rgb24>(mem, (int)w, (int)h);
+            img.Mutate(x => x.Flip(FlipMode.Vertical));
+            var path = Path.Join(
+                _screenshotFolder,
+               "capture_" + DateTime.Now.ToString("yyyyMMddTHHmmss") + ".png");
+            img.SaveAsPng(path);
+        }
+        finally
+        {
+            NativeMemory.Free(data);
+        }
+    }
+
     private unsafe void FrameBufferToImage(FrameBufferObject fbo)
     {
         var (w, h) = (fbo.Width, fbo.Height);
@@ -805,12 +830,6 @@ class FluidSimulation
             ResizeFrameBuffers();
         }
 
-        if (_screenshotRequested)
-        {
-            FrameBufferToImage(_dyeBuff.Read);
-            _screenshotRequested = false;
-        }
-
         if (_paused == false)
         {
             _simStopwatch.Restart();
@@ -959,6 +978,13 @@ class FluidSimulation
                 break;
             default:
                 break;
+        }
+
+        if (_screenshotRequested)
+        {
+            // FrameBufferToImage(_dyeBuff.Read);
+            CaptureWindowFramebuffer();
+            _screenshotRequested = false;
         }
 
         if (_showGui)
